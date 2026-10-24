@@ -114,43 +114,70 @@ Für lokale Entwicklung kann der Paketeintrag auf das geklonte Pluginverzeichnis
 ## Veröffentlichung auf npm
 
 GitHub Actions prüft bei Pull Requests und Pushes auf `main` Syntax, Tests und den Paketinhalt unter Node.js 22 und 24.
-Ein Tag `v0.1.0` startet `.github/workflows/publish.yml`. Der Workflow veröffentlicht nur dann,
+Ein neuer Tag `vX.Y.Z` startet `.github/workflows/publish.yml`. Der Workflow veröffentlicht nur dann,
 wenn Tag und Version in `package.json` übereinstimmen. Die Veröffentlichung verwendet Node.js 24 und npm 11.19.0.
 Die Paket-Positivliste enthält ausschließlich Runtime-Dateien, Paketmetadaten, README, Lizenz und Änderungsprotokoll.
 
 ### Erstveröffentlichung
 
-Ein berechtigtes Mitglied der npm-Organisation `mumme-it` muss den Zugriff einmalig einrichten.
-Für die erste Veröffentlichung eines noch nicht vorhandenen Pakets kann im Repository ein Actions-Secret
-`NPM_TOKEN` hinterlegt werden. Verwende einen granularen npm-Token mit Schreibzugriff auf diesen Scope
-und den für nicht interaktive Veröffentlichungen notwendigen 2FA-Einstellungen.
-Tokens gehören nicht in Issues, Konfigurationsbeispiele oder Git-Dateien.
-
-Wenn der erste Lauf an fehlender Anmeldung scheitert, richte den Zugang ein und starte den Workflow
-**npm-Veröffentlichung** über **Run workflow** mit `tag: v0.1.0` erneut. Der Tag muss nicht neu erstellt werden.
-Alternativ kann ein berechtigtes Mitglied nach `npm login` aus einem geprüften Checkout veröffentlichen:
+Ein berechtigtes Mitglied der npm-Organisation `mumme-it` veröffentlicht Version `0.1.0` einmalig lokal.
+Verwende Node.js ab Version 22. Der folgende Block erstellt einen separaten Checkout des vorhandenen Tags;
+die aktive Plugininstallation und ihre persönliche Konfiguration bleiben unverändert.
 
 ```sh
-npm publish --access public
+(
+  set -eu
+  bootstrap_dir="$(mktemp -d)"
+  git clone --branch v0.1.0 --depth 1 https://github.com/Mumme-IT/opencode-ntfy.git "$bootstrap_dir/opencode-ntfy"
+  cd "$bootstrap_dir/opencode-ntfy"
+  npm login --registry=https://registry.npmjs.org/
+  npm publish --access public --provenance=false --ignore-scripts=false --registry=https://registry.npmjs.org/
+  npm view @mumme-it/opencode-ntfy@0.1.0 version --registry=https://registry.npmjs.org/
+)
 ```
+
+Bestätige die Anmeldung und gegebenenfalls 2FA im Browser. `prepublishOnly` führt Syntaxprüfung und Tests aus.
+`--provenance=false` überschreibt eine eventuell lokal gesetzte Provenance-Konfiguration,
+weil ein lokales Terminal keinen GitHub-OIDC-Herkunftsnachweis erstellen kann.
+Der vorhandene Tag enthält in `publishConfig` nur `access: public`, keinen eigenen Provenance-Wert.
+Wenn Version `0.1.0` bereits existiert, veröffentliche sie nicht erneut. npm-Versionen sind unveränderlich.
+Löse nach erfolgreicher Erstveröffentlichung weder den alten Workflow-Lauf noch den Tag `v0.1.0` erneut aus.
 
 ### Weitere Releases mit Trusted Publishing
 
-Richte in den npm-Paketeinstellungen einen GitHub-Trusted-Publisher ein:
+Der Workflow verwendet ausschließlich OIDC und benötigt kein `NPM_TOKEN` oder anderes npm-Secret.
+Die npm-seitige Vertrauensverbindung lässt sich erst nach der Erstveröffentlichung einrichten.
+Mit npm ab Version `11.15.0`, einem angemeldeten Konto mit aktiviertem 2FA und Schreibzugriff:
+
+```sh
+npm trust github @mumme-it/opencode-ntfy --repo Mumme-IT/opencode-ntfy --file publish.yml --allow-publish --registry=https://registry.npmjs.org/
+npm trust list @mumme-it/opencode-ntfy --registry=https://registry.npmjs.org/
+```
+
+Bestätige die angeforderte 2FA. Bei einer älteren lokalen npm-Version kannst du beide Befehle
+mit `npx --yes --package=npm@11.19.0 npm` statt `npm` starten, ohne npm global zu ändern.
+Alternativ öffne die [npm-Paketeinstellungen](https://www.npmjs.com/package/@mumme-it/opencode-ntfy/access),
+wähle **Trusted publishing → GitHub Actions** und trage Folgendes ein:
 
 - GitHub-Organisation: `Mumme-IT`
 - Repository: `opencode-ntfy`
 - Workflow-Datei: `publish.yml`
 - Environment: keines
-- Erlaube ausdrücklich die Veröffentlichung mit `npm publish`, falls npm dafür eine eigene Auswahl anbietet.
+- Aktiviere **Allow npm publish** ausdrücklich; eine reine Stage-Berechtigung reicht für diesen Workflow nicht.
 
-Nach erfolgreicher OIDC-Einrichtung kann das Repository-Secret `NPM_TOKEN` entfernt werden.
 GitHub-hosted Runner erhalten über `id-token: write` kurzlebige Anmeldedaten.
 `--provenance` erzeugt bei der CI-Veröffentlichung einen Herkunftsnachweis für das öffentliche Paket.
+Eine neue Vertrauensverbindung muss laut npm innerhalb von zwei Tagen erstmals erfolgreich veröffentlichen,
+sonst muss sie neu angelegt werden. Richte sie deshalb zeitnah vor dem nächsten tatsächlichen Release ein.
+Veröffentliche keine bereits vorhandene Version nur zum Testen der Verbindung.
 
 Erhöhe für ein neues Release die Version in `package.json`, ergänze `CHANGELOG.md`, prüfe die Änderungen
 und pushe einen passenden `vX.Y.Z`-Tag. Erstelle anschließend das GitHub Release mit den deutschen Release Notes.
 Prüfe den Workflow und die veröffentlichte npm-Version. Ein GitHub Release allein bestätigt keinen npm-Publish.
+Die npm-Einrichtung und ihre erste erfolgreiche OIDC-Veröffentlichung sind getrennt zu prüfen.
+
+Offizielle npm-Dokumentation: [Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)
+und [npm trust](https://docs.npmjs.com/cli/v11/commands/npm-trust).
 
 ## Quellen für den V2-Vertrag
 

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Bereits vorhandener Release-Tag (zum Beispiel v0.1.0)
+        description: Noch nicht auf npm veröffentlichter Release-Tag (zum Beispiel v0.1.1)
         required: true
         type: string
 
@@ -51,5 +51,3 @@ jobs:
       - run: node scripts/check-package.js
       - name: Auf npm veröffentlichen
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

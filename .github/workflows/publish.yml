@@ -1,0 +1,55 @@
+name: npm-Veröffentlichung
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Bereits vorhandener Release-Tag (zum Beispiel v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Mumme-IT/opencode-ntfy'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: npm für Trusted Publishing aktualisieren
+        run: npm install --global npm@11.19.0
+      - name: Tag und Paketversion abgleichen
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+            if (pkg.name !== "@mumme-it/opencode-ntfy" || process.env.RELEASE_TAG !== `v${pkg.version}`) {
+              throw new Error("Tag und Paketversion stimmen nicht überein.");
+            }
+          '
+      - run: npm run check
+      - run: npm test
+      - run: node scripts/check-package.js
+      - name: Auf npm veröffentlichen
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

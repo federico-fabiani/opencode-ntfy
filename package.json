@@ -1,0 +1,21 @@
+{
+  "name": "@mumme-it/opencode-ntfy",
+  "version": "0.1.0",
+  "description": "Konfigurierbare ntfy-Benachrichtigungen mit Sessionlinks für OpenCode V2",
+  "license": "MIT",
+  "author": "Mumme-IT",
+  "repository": { "type": "git", "url": "git+https://github.com/Mumme-IT/opencode-ntfy.git" },
+  "homepage": "https://github.com/Mumme-IT/opencode-ntfy#readme",
+  "bugs": { "url": "https://github.com/Mumme-IT/opencode-ntfy/issues" },
+  "keywords": ["opencode", "opencode-plugin", "ntfy", "notifications"],
+  "type": "module",
+  "exports": "./index.js",
+  "files": ["index.js", "notifier.js", "README.md", "LICENSE", "CHANGELOG.md"],
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check index.js && node --check notifier.js && node --check notifier.test.js",
+    "prepublishOnly": "npm run check && npm test"
+  }
+}

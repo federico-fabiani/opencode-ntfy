@@ -107,6 +107,14 @@ Das Plugin erkennt strukturierte Rückfragen des `question`-Werkzeugs. Eine nur 
 löst keine gesonderte Rückfragemeldung aus, aber nach dem Lauf die Abschlussmeldung.
 Ein Betriebssystem-Kill kann keine zuverlässige Abbruchmeldung mehr auslösen.
 
+**Wenn der Link auf der Startseite landet statt in der Sitzung**, dann weicht `serverUrl` von der im
+Web-UI gespeicherten Verbindung ab. Meist ist es nur ein abschließender Schrägstrich: die Oberfläche
+speichert je nach Eingabe `https://host` oder `https://host/`. Beide Varianten sind gültig, aber die
+Serverkennung ist `base64url` der exakten Zeichenkette. Mit `node scripts/session-link.js <sessionID> <webUrl>`
+lassen sich beide Kandidaten ausgeben und am Telefon gegeneinander prüfen. Ist die Verbindung ohne
+abschließenden `/` gespeichert, ist der Standardweg richtig: `serverUrl` weglassen, dann wird `webUrl`
+ohne Schrägstrich verwendet.
+
 ## Lokale Prüfung
 
 ```sh

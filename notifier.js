@@ -16,6 +16,37 @@ function httpURL(value, name) {
   return value.trim()
 }
 
+// Titel je Sprache. Der Standard bleibt Deutsch, damit die Upstream-Tests und
+// bestehende Installationen unverändert weiterlaufen.
+const TITLES = {
+  de: {
+    question: "OpenCode: Rückfrage",
+    permission: "OpenCode: Freigabe nötig",
+    done: "OpenCode: Agent fertig",
+    failed: "OpenCode: Agent fehlgeschlagen",
+    interrupted: "OpenCode: Agent unterbrochen",
+    retry: "OpenCode: Wartet auf Provider",
+  },
+  it: {
+    question: "OpenCode: domanda",
+    permission: "OpenCode: permesso richiesto",
+    done: "OpenCode: finito",
+    failed: "OpenCode: errore",
+    interrupted: "OpenCode: interrotto",
+    retry: "OpenCode: in attesa del provider",
+  },
+}
+
+// Emoji-Shortcodes von ntfy: unterscheiden die Ereignisart auf einen Blick.
+const TAGS = {
+  question: ["question"],
+  permission: ["warning"],
+  done: ["white_check_mark"],
+  failed: ["rotating_light"],
+  interrupted: ["octagonal_sign"],
+  retry: ["hourglass_flowing_sand"],
+}
+
 export async function readConfig(options = {}, env = process.env) {
   const server = httpURL(options.server ?? env.OPENCODE_NTFY_SERVER ?? "https://ntfy.sh", "server").replace(/\/+$/, "")
   const topic = options.topic ?? env.OPENCODE_NTFY_TOPIC
@@ -36,7 +67,7 @@ export async function readConfig(options = {}, env = process.env) {
     if (!token) throw new Error("ntfy: Token-Datei ist leer.")
   }
   if (token && /[\r\n]/.test(token)) throw new Error("ntfy: Token enthält einen Zeilenumbruch.")
-  for (const key of ["questions", "permissions", "completions", "includeChildCompletions", "includeSessionTitle", "includeProjectName"]) {
+  for (const key of ["questions", "permissions", "completions", "includeChildCompletions", "includeSessionTitle", "includeProjectName", "includeDetail", "includePermissionResources"]) {
     if (options[key] !== undefined && typeof options[key] !== "boolean") {
       throw new Error(`ntfy: ${key} muss true oder false sein.`)
     }
@@ -46,14 +77,24 @@ export async function readConfig(options = {}, env = process.env) {
       throw new Error(`ntfy: ${key} muss eine ganze Zahl von 1 bis 5 sein.`)
     }
   }
+  const language = options.language ?? "de"
+  if (!Object.hasOwn(TITLES, language)) {
+    throw new Error(`ntfy: language muss eine von ${Object.keys(TITLES).join(", ")} sein.`)
+  }
+  const maxPerMinute = options.maxPerMinute ?? 30
+  if (!Number.isInteger(maxPerMinute) || maxPerMinute < 1 || maxPerMinute > 600) {
+    throw new Error("ntfy: maxPerMinute muss eine ganze Zahl von 1 bis 600 sein.")
+  }
   return {
-    server, topic, webUrl, serverUrl, token,
+    server, topic, webUrl, serverUrl, token, language, maxPerMinute,
     questions: options.questions !== false,
     permissions: options.permissions !== false,
     completions: options.completions !== false,
     includeChildCompletions: options.includeChildCompletions === true,
     includeSessionTitle: options.includeSessionTitle !== false,
     includeProjectName: options.includeProjectName !== false,
+    includeDetail: options.includeDetail !== false,
+    includePermissionResources: options.includePermissionResources === true,
     attentionPriority: options.attentionPriority ?? 4,
     completionPriority: options.completionPriority ?? 3,
   }
@@ -71,22 +112,49 @@ function sameLocation(left, right) {
 function notificationEvent(event, config) {
   const data = event?.data
   if (!data) return
+  const titles = TITLES[config.language]
   switch (event.type) {
     case "form.created":
       if (!config.questions || data.form?.metadata?.kind !== "question") return
-      return { sessionID: data.form.sessionID, key: `question:${data.form.id}`, title: "OpenCode: Rückfrage", priority: config.attentionPriority }
-    case "permission.asked":
+      return {
+        sessionID: data.form.sessionID,
+        key: `question:${data.form.id}`,
+        title: titles.question,
+        tags: TAGS.question,
+        detail: data.form.title,
+        priority: config.attentionPriority,
+      }
+    case "permission.asked": {
       if (!config.permissions) return
-      return { sessionID: data.sessionID, key: `permission:${data.id}`, title: "OpenCode: Freigabe nötig", priority: config.attentionPriority }
+      // Ressourcen können Befehle mit Tokens enthalten: nur auf ausdrücklichen Wunsch mitsenden.
+      const resources = config.includePermissionResources && Array.isArray(data.resources) ? data.resources : []
+      return {
+        sessionID: data.sessionID,
+        key: `permission:${data.id}`,
+        title: titles.permission,
+        tags: TAGS.permission,
+        detail: [data.action, ...resources].filter((part) => typeof part === "string" && part).join(" "),
+        priority: config.attentionPriority,
+      }
+    }
     case "session.execution.succeeded":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: "OpenCode: Agent fertig", completion: true, priority: config.completionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.done, tags: TAGS.done, completion: true, priority: config.completionPriority }
     case "session.execution.failed":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: "OpenCode: Agent fehlgeschlagen", completion: true, priority: config.attentionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.failed, tags: TAGS.failed, completion: true, priority: config.attentionPriority }
     case "session.execution.interrupted":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: "OpenCode: Agent unterbrochen", completion: true, priority: config.completionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.interrupted, tags: TAGS.interrupted, completion: true, priority: config.completionPriority }
+    // Der Provider begrenzt gerade: kein Fehler der Sitzung, aber relevant für die Planung.
+    case "session.retry.scheduled":
+      return {
+        sessionID: data.sessionID,
+        key: event.id ?? `retry:${data.sessionID}`,
+        title: titles.retry,
+        tags: TAGS.retry,
+        priority: config.attentionPriority,
+      }
   }
 }
 
@@ -95,6 +163,7 @@ function caption(value) {
 }
 
 async function publish(config, payload, signal) {
+  let lastStatus
   for (let attempt = 0; attempt < 3; attempt++) {
     signal.throwIfAborted()
     let retryAfter = 1000 * 2 ** attempt
@@ -112,6 +181,7 @@ async function publish(config, payload, signal) {
       })
       await response.body?.cancel()
       if (response.ok) return
+      lastStatus = response.status
       retry = response.status === 429 || response.status >= 500
       const header = response.headers.get("retry-after")
       if (header) {
@@ -123,7 +193,9 @@ async function publish(config, payload, signal) {
       signal.throwIfAborted()
     }
     // Lange Wartezeiten des Servers sollen andere Sessions nicht unnötig verzögern.
-    if (!retry || retryAfter > 30000 || attempt === 2) throw new Error("ntfy: Zustellung fehlgeschlagen.")
+    if (!retry || retryAfter > 30000 || attempt === 2) {
+      throw new Error(`ntfy: Zustellung fehlgeschlagen${lastStatus ? ` (HTTP ${lastStatus})` : ""}.`)
+    }
     await delay(retryAfter, undefined, { signal })
   }
 }
@@ -132,7 +204,19 @@ export function startNotifier(ctx, config) {
   const controller = new AbortController()
   const { signal } = controller
   const seen = new Set()
+  const sent = []
+  let limitWarnedAt = 0
   const warn = (message) => console.warn(`[mumme-it.ntfy] ${message}`)
+
+  // Einfache Gleitfenster-Bremse: verhindert Notifikationslawinen, wenn ein
+  // Workflow viele Sitzungen auf einmal startet.
+  const allow = () => {
+    const now = Date.now()
+    while (sent.length > 0 && now - sent[0] >= 60_000) sent.shift()
+    if (sent.length >= config.maxPerMinute) return false
+    sent.push(now)
+    return true
+  }
 
   async function handle(event) {
     const notice = notificationEvent(event, config)
@@ -144,19 +228,29 @@ export function startNotifier(ctx, config) {
     if (!sameLocation(session.location, ctx.location)) return
     if (notice.completion && session.parentID && !config.includeChildCompletions) return
     signal.throwIfAborted()
+    if (!allow()) {
+      const now = Date.now()
+      if (now - limitWarnedAt > 60_000) {
+        limitWarnedAt = now
+        warn(`Mehr als ${config.maxPerMinute} Meldungen pro Minute; weitere werden verworfen.`)
+      }
+      return
+    }
     const click = sessionURL(config, notice.sessionID)
     const message = [
       ...(config.includeSessionTitle ? [caption(session.title || notice.sessionID)] : []),
+      ...(config.includeDetail && notice.detail ? [caption(notice.detail)] : []),
       ...(config.includeProjectName ? [caption(basename(session.location.directory))] : []),
-      "Session öffnen.",
-    ].join("\n")
+    ].join("\n").trim()
     await publish(config, {
       topic: config.topic,
       title: notice.title,
-      message,
+      // ntfy verlangt einen Text; die Sitzungs-ID ist der letzte Ausweg.
+      message: message || notice.sessionID,
       priority: notice.priority,
       click,
-      actions: [{ action: "view", label: "Session öffnen", url: click }],
+      ...(notice.tags ? { tags: notice.tags } : {}),
+      actions: [{ action: "view", label: config.language === "it" ? "Apri sessione" : "Session öffnen", url: click }],
     }, signal)
     seen.add(notice.key)
     if (seen.size > 1024) seen.delete(seen.values().next().value)

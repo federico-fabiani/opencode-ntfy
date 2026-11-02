@@ -4,6 +4,11 @@ Konfigurierbare ntfy-Benachrichtigungen für OpenCode V2 ohne externe Laufzeitab
 Jede Meldung enthält einen direkten Link zur auslösenden Session.
 Der Plugin-Vertrag ist mit OpenCode `2.1.3` geprüft. Node.js ab Version 22 ist erforderlich.
 
+> **Fork.** Dieses Repository ist ein Fork von [Mumme-IT/opencode-ntfy](https://github.com/Mumme-IT/opencode-ntfy)
+> (MIT-Lizenz, Autor: Mumme-IT). Die Idee, der Ereigniskatalog und die Zustelllogik stammen von dort.
+> Ergänzt wurden Meldungstext mit Inhalt, Emoji-Tags, `session.retry.scheduled`,
+> ein Ratenbegrenzer und eine Sprachauswahl. Upstream bleibt die Referenz.
+
 ## Verhalten
 
 - Echte Rückfragen: `form.created` mit `metadata.kind === "question"`.
@@ -12,7 +17,7 @@ Der Plugin-Vertrag ist mit OpenCode `2.1.3` geprüft. Node.js ab Version 22 ist 
 - Jede Meldung enthält eine ntfy-Click-URL und die Aktion **Session öffnen** zur auslösenden Session.
 - Rückfragen von Unteragenten werden ebenfalls gemeldet. Abschlüsse von Unteragenten sind standardmäßig ausgeschaltet.
 - Nachrichten enthalten standardmäßig Sessiontitel und Projektverzeichnisnamen. Beide Angaben lassen sich ausschalten.
-- Frageinhalte, Antworten, Fehlermeldungen und Zugangsdaten werden nicht in die Nachricht eingebaut.
+- Frageinhalte werden als Nachrichtentext eingebaut (Fragentitel), Freigaben als Aktion. Antworten, Fehlermeldungen und Zugangsdaten werden nicht übernommen. Ressourcen von Freigaben können Befehle mit Tokens enthalten und bleiben deshalb standardmäßig ausgeschlossen.
 - Die Zustellung läuft im Ereignisabonnement, nicht in einem blockierenden Tool-Hook.
 - Instanzen filtern nach Verzeichnis und Workspace, damit verschiedene Projekte nicht dieselbe Meldung mehrfach senden.
 
@@ -54,6 +59,10 @@ Optionale Einstellungen:
 - `includeChildCompletions: true`: auch Abschlüsse, Fehler und Abbrüche von Unteragenten melden.
 - `includeSessionTitle: false`: den Sessiontitel aus dem Nachrichtentext entfernen. Standard: `true`.
 - `includeProjectName: false`: den Projektverzeichnisnamen aus dem Nachrichtentext entfernen. Standard: `true`.
+- `includeDetail: false`: den inhaltlichen Teil (Fragentitel, Aktion einer Freigabe) aus dem Nachrichtentext entfernen. Standard: `true`.
+- `includePermissionResources: true`: Ressourcen einer Freigabe mitsenden. Standard: `false`, weil Befehle Tokens enthalten können.
+- `language`: Sprache für Titel und Aktionslabel, `de` oder `it`. Standard: `de`.
+- `maxPerMinute`: Obergrenze für Meldungen pro Minute, ganzzahlig von `1` bis `600`. Standard: `30`.
 - `attentionPriority`: ntfy-Priorität für Fragen, Freigaben und Fehler, ganzzahlig von `1` bis `5`. Standard: `4`.
 - `completionPriority`: ntfy-Priorität für Erfolg und Abbruch, ganzzahlig von `1` bis `5`. Standard: `3`.
 - `enabled: false`: das Plugin deaktivieren, ohne den Eintrag zu entfernen.

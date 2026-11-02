@@ -20,7 +20,7 @@ function event(type, sessionID, extra = {}) {
 }
 
 function question(sessionID, id = `form_${sessionID}`) {
-  return event("form.created", sessionID, { form: { id, sessionID, metadata: { kind: "question" } } })
+  return event("form.created", sessionID, { form: { id, sessionID, title: "Soll ich fortfahren?", metadata: { kind: "question" } } })
 }
 
 async function harness(t, events, { overrides = {}, sessions = {}, respond, subscribe } = {}) {
@@ -246,14 +246,15 @@ test("Prioritäten gelten für alle Ereignisarten und private Metadaten können 
   ], { overrides: { attentionPriority: 5, completionPriority: 1, includeSessionTitle: false, includeProjectName: false } })
   await h.drained
   assert.deepEqual(h.requests.map((r) => r.body.priority), [5, 5, 1, 5, 1])
-  assert.ok(h.requests.every((r) => r.body.message === "Session öffnen."))
+  assert.equal(h.requests[0].body.message, "Soll ich fortfahren?")
+  assert.ok(h.requests.slice(1).every((r) => r.body.message === "ses_A"))
   assert.ok(h.requests.every((r) => r.body.click.endsWith("/ses_A")))
 })
 
 test("Sessiontitel und Projektname können getrennt ausgeblendet werden", { timeout: 5000 }, async (t) => {
   for (const [overrides, message] of [
-    [{ includeSessionTitle: false }, "example\nSession öffnen."],
-    [{ includeProjectName: false }, "Titel ses_A\nSession öffnen."],
+    [{ includeSessionTitle: false }, "Soll ich fortfahren?\nexample"],
+    [{ includeProjectName: false }, "Titel ses_A\nSoll ich fortfahren?"],
   ]) {
     const h = await harness(t, [question("ses_A")], { overrides })
     await h.drained
@@ -292,4 +293,36 @@ test("Optionen überschreiben Umgebungsvariablen; Umgebungsziele funktionieren o
   assert.equal(explicit.topic, options.topic)
   assert.equal(explicit.webUrl, options.webUrl)
   assert.equal(explicit.serverUrl, options.serverUrl)
+})
+
+test("Freigaben zeigen Aktion und Ressource; Emoji-Tags unterscheiden die Ereignisart", { timeout: 5000 }, async (t) => {
+  const h = await harness(t, [
+    event("permission.asked", "ses_A", { id: "permission_1", action: "bash", resources: ["npm test"] }),
+    event("session.retry.scheduled", "ses_A"),
+  ], { overrides: { includePermissionResources: true } })
+  await h.drained
+  assert.equal(h.requests.length, 2)
+  assert.match(h.requests[0].body.message, /bash npm test/)
+  assert.deepEqual(h.requests[0].body.tags, ["warning"])
+  assert.equal(h.requests[1].body.title, "OpenCode: Wartet auf Provider")
+  assert.deepEqual(h.requests[1].body.tags, ["hourglass_flowing_sand"])
+})
+
+test("maxPerMinute verwirft zusätzliche Meldungen und warnt einmal", { timeout: 5000 }, async (t) => {
+  const events = ["ses_A", "ses_B", "ses_C", "ses_D"].map((id) => event("session.execution.succeeded", id))
+  const h = await harness(t, events, { overrides: { maxPerMinute: 2 } })
+  await h.drained
+  assert.equal(h.requests.length, 2)
+  assert.equal(h.warnings.filter((w) => w.includes("Meldungen pro Minute")).length, 1)
+})
+
+test("Sprache it übersetzt Titel und Aktionslabel", { timeout: 5000 }, async (t) => {
+  const h = await harness(t, [question("ses_A")], { overrides: { language: "it" } })
+  await h.drained
+  assert.equal(h.requests[0].body.title, "OpenCode: domanda")
+  assert.equal(h.requests[0].body.actions[0].label, "Apri sessione")
+})
+
+test("Unbekannte Sprache wird abgelehnt", async () => {
+  await assert.rejects(readConfig({ topic: "ok", language: "xx" }, { OPENCODE_NTFY_WEB_URL: "https://web.example.test" }), /language/)
 })

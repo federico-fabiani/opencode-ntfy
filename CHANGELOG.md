@@ -1,5 +1,28 @@
 # Änderungen
 
+## 0.2.0
+
+Fork von `Mumme-IT/opencode-ntfy` durch federico-fabiani. Upstream bleibt die Referenz;
+alle Änderungen sind additiv und lassen sich einzeln zurücknehmen.
+
+### Änderungen
+
+- Der Nachrichtentext trägt jetzt Inhalt statt nur eines Platzhalters: Fragentitel bei
+  Rückfragen (`form.title`), Aktion bei Freigaben (`action`). Abschaltbar über `includeDetail: false`.
+- Freigabe-Ressourcen bleiben standardmäßig ausgeschlossen, weil sie Befehle mit Tokens
+  enthalten können. Opt-in über `includePermissionResources: true`.
+- `session.retry.scheduled` wird als eigene Meldung mit Aufmerksamkeitspriorität gemeldet.
+- Jede Meldung trägt ntfy-Tags (`question`, `warning`, `white_check_mark`, `rotating_light`,
+  `octagonal_sign`, `hourglass_flowing_sand`).
+- `language: "it"` für italienische Titel und das Aktionslabel. Standard bleibt `de`.
+- `maxPerMinute` (Standard `30`) verwirft überschüssige Meldungen und warnt einmal pro Minute.
+- Fehler beim Zustellen nennen jetzt den HTTP-Status.
+
+### Unverändert
+
+- Linkaufbau (`base64url` der Server-URL), Deduplizierung, Ortsfilter, Wiederholungslogik,
+  Token-Handling und Ereignisstrom-Wiederaufbau sind unverändert übernommen.
+
 ## 0.1.0
 
 Dies ist die erste öffentliche Version von `@mumme-it/opencode-ntfy` für OpenCode V2.

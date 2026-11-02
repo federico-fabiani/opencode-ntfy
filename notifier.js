@@ -84,6 +84,12 @@ export async function readConfig(options = {}, env = process.env) {
   if (!Object.hasOwn(TITLES, language)) {
     throw new Error(`ntfy: language muss eine von ${Object.keys(TITLES).join(", ")} sein.`)
   }
+  for (const key of ["questionDelay", "permissionDelay", "completionDelay", "errorDelay"]) {
+    const value = options[key]
+    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 600)) {
+      throw new Error(`ntfy: ${key} muss eine Zahl von 0 bis 600 Sekunden sein.`)
+    }
+  }
   const maxPerMinute = options.maxPerMinute ?? 30
   if (!Number.isInteger(maxPerMinute) || maxPerMinute < 1 || maxPerMinute > 600) {
     throw new Error("ntfy: maxPerMinute muss eine ganze Zahl von 1 bis 600 sein.")
@@ -98,6 +104,10 @@ export async function readConfig(options = {}, env = process.env) {
     includeProjectName: options.includeProjectName !== false,
     includeDetail: options.includeDetail !== false,
     includePermissionResources: options.includePermissionResources === true,
+    questionDelay: options.questionDelay ?? 30,
+    permissionDelay: options.permissionDelay ?? 20,
+    completionDelay: options.completionDelay ?? 60,
+    errorDelay: options.errorDelay ?? 15,
     attentionPriority: options.attentionPriority ?? 4,
     completionPriority: options.completionPriority ?? 3,
   }
@@ -125,6 +135,7 @@ function notificationEvent(event, config) {
         title: titles.question,
         tags: TAGS.question,
         detail: data.form.title,
+        delay: config.questionDelay * 1000,
         priority: config.attentionPriority,
       }
     case "permission.asked": {
@@ -137,23 +148,24 @@ function notificationEvent(event, config) {
         title: titles.permission,
         tags: TAGS.permission,
         detail: [data.action, ...resources].filter((part) => typeof part === "string" && part).join(" "),
+        delay: config.permissionDelay * 1000,
         priority: config.attentionPriority,
       }
     }
     case "session.execution.succeeded":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: titles.done, tags: TAGS.done, completion: true, priority: config.completionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.done, tags: TAGS.done, completion: true, delay: config.completionDelay * 1000, priority: config.completionPriority }
     case "session.execution.failed":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: titles.failed, tags: TAGS.failed, completion: true, priority: config.attentionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.failed, tags: TAGS.failed, completion: true, delay: config.errorDelay * 1000, priority: config.attentionPriority }
     case "session.execution.interrupted":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: titles.interrupted, tags: TAGS.interrupted, completion: true, priority: config.completionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.interrupted, tags: TAGS.interrupted, completion: true, delay: config.completionDelay * 1000, priority: config.completionPriority }
     // Der Agent ist fertig, aber der Lauf ist nicht "succeeded": session.idle
     // ist das Ereignis, das im Chat tatsächlich am Ende eines Turns kommt.
     case "session.idle":
       if (!config.completions) return
-      return { sessionID: data.sessionID, key: event.id, title: titles.idle, tags: TAGS.idle, completion: true, idle: true, priority: config.completionPriority }
+      return { sessionID: data.sessionID, key: event.id, title: titles.idle, tags: TAGS.idle, completion: true, idle: true, delay: config.completionDelay * 1000, priority: config.completionPriority }
     // Der Provider begrenzt gerade: kein Fehler der Sitzung, aber relevant für die Planung.
     case "session.retry.scheduled":
       return {
@@ -161,6 +173,7 @@ function notificationEvent(event, config) {
         key: event.id ?? `retry:${data.sessionID}`,
         title: titles.retry,
         tags: TAGS.retry,
+        delay: config.errorDelay * 1000,
         priority: config.attentionPriority,
       }
   }
@@ -230,15 +243,44 @@ export function startNotifier(ctx, config) {
     return true
   }
 
-  async function handle(event) {
-    const notice = notificationEvent(event, config)
-    if (!notice || typeof notice.sessionID !== "string" || typeof notice.key !== "string") return
-    if (seen.has(notice.key)) return
-    // Jede Instanz gehört zu einem Ort, das Abonnement sieht jedoch serverweite Ereignisse.
-    if (event.location && !sameLocation(event.location, ctx.location)) return
-    const session = await ctx.session.get({ sessionID: notice.sessionID }, { signal })
-    if (!sameLocation(session.location, ctx.location)) return
-    if (notice.completion && session.parentID && !config.includeChildCompletions) return
+  // Eine Meldung geht nicht sofort raus. Sie wird kurz zurückgehalten und
+  // verworfen, wenn in der Zwischenzeit geantwortet, die Sitzung neu gestartet
+  // oder eine andere Sitzung geöffnet wurde: wer ohnehin hinsieht, braucht
+  // keinen Push.
+  const pending = new Map()
+
+  function hasPendingCompletion(sessionID) {
+    for (const entry of pending.values()) {
+      if (entry.sessionID === sessionID && entry.completion) return true
+    }
+    return false
+  }
+
+  function dropPending(key) {
+    const entry = pending.get(key)
+    if (!entry) return
+    clearTimeout(entry.timer)
+    pending.delete(key)
+  }
+
+  function dropSession(sessionID) {
+    for (const [key, entry] of [...pending]) {
+      if (entry.sessionID !== sessionID) continue
+      clearTimeout(entry.timer)
+      pending.delete(key)
+    }
+  }
+
+  function cancelFor(event) {
+    const data = event.data ?? {}
+    if (event.type === "permission.replied" && typeof data.id === "string") return dropPending(`permission:${data.id}`)
+    if (event.type === "form.replied" && typeof data.id === "string") return dropPending(`question:${data.id}`)
+    if ((event.type === "session.viewed" || event.type === "session.execution.started") && typeof data.sessionID === "string") {
+      return dropSession(data.sessionID)
+    }
+  }
+
+  async function deliver(notice, session) {
     if (notice.idle) {
       const last = lastSent.get(notice.sessionID) ?? 0
       if (Date.now() - last < IDLE_QUIET_MS) return
@@ -268,10 +310,43 @@ export function startNotifier(ctx, config) {
       ...(notice.tags ? { tags: notice.tags } : {}),
       actions: [{ action: "view", label: config.language === "it" ? "Apri sessione" : "Session öffnen", url: click }],
     }, signal)
-    seen.add(notice.key)
-    if (seen.size > 1024) seen.delete(seen.values().next().value)
     lastSent.set(notice.sessionID, Date.now())
     if (lastSent.size > 1024) lastSent.delete(lastSent.keys().next().value)
+  }
+
+  async function handle(event) {
+    const notice = notificationEvent(event, config)
+    if (!notice || typeof notice.sessionID !== "string" || typeof notice.key !== "string") {
+      cancelFor(event)
+      return
+    }
+    if (seen.has(notice.key)) return
+    // Jede Instanz gehört zu einem Ort, das Abonnement sieht jedoch serverweite Ereignisse.
+    if (event.location && !sameLocation(event.location, ctx.location)) return
+    // session.idle ist nur der Ersatz, wenn kein Abschluss angekündigt ist.
+    if (notice.idle && hasPendingCompletion(notice.sessionID)) return
+    const session = await ctx.session.get({ sessionID: notice.sessionID }, { signal })
+    if (!sameLocation(session.location, ctx.location)) return
+    if (notice.completion && session.parentID && !config.includeChildCompletions) return
+    seen.add(notice.key)
+    const delayMs = notice.delay ?? 0
+    if (delayMs > 0) {
+      if (pending.size >= 128) {
+        warn("Zu viele ausstehende Meldungen; eine wird verworfen.")
+        return
+      }
+      const timer = setTimeout(() => {
+        pending.delete(notice.key)
+        if (signal.aborted) return
+        deliver(notice, session).catch(() => {
+          if (!signal.aborted) warn("Benachrichtigung fehlgeschlagen. ntfy-Ziel und Sessionzugriff prüfen.")
+        })
+      }, delayMs)
+      timer.unref?.()
+      pending.set(notice.key, { timer, sessionID: notice.sessionID, completion: !!notice.completion })
+      return
+    }
+    await deliver(notice, session)
   }
 
   const running = (async () => {
@@ -296,6 +371,8 @@ export function startNotifier(ctx, config) {
   })
 
   return async () => {
+    for (const entry of pending.values()) clearTimeout(entry.timer)
+    pending.clear()
     controller.abort()
     await running
   }

@@ -63,6 +63,7 @@ Optionale Einstellungen:
 - `includePermissionResources: true`: Ressourcen einer Freigabe mitsenden. Standard: `false`, weil Befehle Tokens enthalten können.
 - `language`: Sprache für Titel und Aktionslabel, `de` oder `it`. Standard: `de`.
 - `maxPerMinute`: Obergrenze für Meldungen pro Minute, ganzzahlig von `1` bis `600`. Standard: `30`.
+- `permissionDelay`, `questionDelay`, `completionDelay`, `errorDelay`: Wartezeit in Sekunden (auch Bruchteile), bevor eine Meldung rausgeht. Standard: `20`, `30`, `60`, `15`. `0` schaltet die Verzögerung ab.
 - `attentionPriority`: ntfy-Priorität für Fragen, Freigaben und Fehler, ganzzahlig von `1` bis `5`. Standard: `4`.
 - `completionPriority`: ntfy-Priorität für Erfolg und Abbruch, ganzzahlig von `1` bis `5`. Standard: `3`.
 - `enabled: false`: das Plugin deaktivieren, ohne den Eintrag zu entfernen.
@@ -81,6 +82,16 @@ Verwende ein geschütztes Topic oder einen schwer zu erratenden Namen. Sessionti
 
 OpenCode lädt Änderungen an der Konfiguration automatisch neu. Bei Bedarf erzwingt `/reload` das Neuladen.
 Ein Serverneustart ist dafür nicht erforderlich.
+
+## Verzögerung und Abbruch
+
+Meldungen gehen nicht sofort raus. Sie werden `permissionDelay`/`questionDelay`/`completionDelay`/`errorDelay` Sekunden zurückgehalten und dann verworfen, wenn in der Zwischenzeit:
+
+- das Passwort bzw. die Frage beantwortet wurde (`permission.replied`, `form.replied`),
+- ein neuer Turn in derselben Sitzung startet (`session.execution.started`),
+- die Sitzung betrachtet wird (`session.viewed`).
+
+Wer ohnehin am Bildschirm sitzt und antwortet, bekommt also keine Push-Nachricht; wer weg ist, bekommt sie nach Ablauf der Frist. Bei `completionDelay: 60` heißt das konkret: solange du im Chat weiterschreibst, kommt nur die letzte Meldung, und zwar eine Minute nachdem du aufgehört hast.
 
 ## iPhone einrichten
 

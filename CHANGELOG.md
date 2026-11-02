@@ -1,5 +1,11 @@
 # Änderungen
 
+## 0.4.0
+
+- **Verzögerte Zustellung mit Abbruch.** Meldungen werden kurz zurückgehalten (`permissionDelay` 20 s, `questionDelay` 30 s, `completionDelay` 60 s, `errorDelay` 15 s) und verworfen, wenn eine Freigabe oder Frage beantwortet, die Sitzung betrachtet oder ein neuer Turn gestartet wurde. Wer im Chat mitliest und antwortet, bekommt keine Push-Nachricht mehr.
+- `session.idle` wird nur noch gesendet, wenn kein Abschluss derselben Sitzung aussteht.
+- Ausstehende Meldungen werden beim Beenden des Plugins sauber abgebrochen (maximal 128 gleichzeitig).
+
 ## 0.3.0
 
 - `session.idle` wird als Abschluss gemeldet. Im Chat endet ein Turn mit

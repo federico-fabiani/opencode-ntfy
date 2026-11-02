@@ -13,6 +13,10 @@ const options = {
   topic: "test-topic",
   webUrl: "https://code.example.test",
   serverUrl: "https://backend.example.test/",
+  questionDelay: 0,
+  permissionDelay: 0,
+  completionDelay: 0,
+  errorDelay: 0,
 }
 
 function event(type, sessionID, extra = {}) {
@@ -343,4 +347,47 @@ test("session.idle direkt nach einer Freigabe ist kein zweiter Alarm", { timeout
   await h.drained
   assert.equal(h.requests.length, 1)
   assert.equal(h.requests[0].body.title, "OpenCode: Freigabe nötig")
+})
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test("Freigabe wird zurückgehalten und bei rechtzeitiger Antwort verworfen", { timeout: 5000 }, async (t) => {
+  const asked = event("permission.asked", "ses_A", { id: "perm_1", action: "bash" })
+  const replied = event("permission.replied", "ses_A", { id: "perm_1" })
+  const h = await harness(t, [asked, replied], { overrides: { permissionDelay: 0.05 } })
+  await h.drained
+  await wait(200)
+  assert.equal(h.requests.length, 0)
+})
+
+test("Freigabe ohne Antwort wird nach Ablauf der Frist zugestellt", { timeout: 5000 }, async (t) => {
+  const asked = event("permission.asked", "ses_A", { id: "perm_1", action: "bash" })
+  const h = await harness(t, [asked], { overrides: { permissionDelay: 0.05 } })
+  await h.drained
+  assert.equal(h.requests.length, 0)
+  await wait(200)
+  assert.equal(h.requests.length, 1)
+  assert.ok(String(h.requests[0].body.message).includes("bash"))
+})
+
+test("Abschluss wird verworfen, wenn der nächste Turn beginnt", { timeout: 5000 }, async (t) => {
+  const done = event("session.execution.succeeded", "ses_A")
+  const next = event("session.execution.started", "ses_A")
+  const h = await harness(t, [done, next], { overrides: { completionDelay: 0.05 } })
+  await h.drained
+  await wait(200)
+  assert.equal(h.requests.length, 0)
+})
+
+test("Abschluss wird zugestellt, wenn niemand weiterschreibt", { timeout: 5000 }, async (t) => {
+  const done = event("session.execution.succeeded", "ses_A")
+  const h = await harness(t, [done], { overrides: { completionDelay: 0.05 } })
+  await h.drained
+  assert.equal(h.requests.length, 0)
+  await wait(200)
+  assert.equal(h.requests.length, 1)
+})
+
+test("Unzulässige Verzögerung wird abgelehnt", async () => {
+  await assert.rejects(readConfig({ topic: "ok", questionDelay: -1 }, { OPENCODE_NTFY_WEB_URL: "https://web.example.test" }), /questionDelay/)
 })

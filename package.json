@@ -1,7 +1,7 @@
 {
   "name": "@mumme-it/opencode-ntfy",
-  "version": "0.2.0",
-  "description": "Konfigurierbare ntfy-Benachrichtigungen mit Sessionlinks f\u00fcr OpenCode V2 (fork: Meldungstext, Tags, Ratenbegrenzung)",
+  "version": "0.3.0",
+  "description": "Konfigurierbare ntfy-Benachrichtigungen mit Sessionlinks für OpenCode V2 (fork: Meldungstext, Tags, Ratenbegrenzung)",
   "license": "MIT",
   "author": "Mumme-IT",
   "repository": {

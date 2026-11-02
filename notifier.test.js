@@ -326,3 +326,21 @@ test("Sprache it übersetzt Titel und Aktionslabel", { timeout: 5000 }, async (t
 test("Unbekannte Sprache wird abgelehnt", async () => {
   await assert.rejects(readConfig({ topic: "ok", language: "xx" }, { OPENCODE_NTFY_WEB_URL: "https://web.example.test" }), /language/)
 })
+
+test("session.idle meldet das Ende eines Chat-Turns", { timeout: 5000 }, async (t) => {
+  const h = await harness(t, [event("session.idle", "ses_A")])
+  await h.drained
+  assert.equal(h.requests.length, 1)
+  assert.equal(h.requests[0].body.title, "OpenCode: wartet auf dich")
+  assert.deepEqual(h.requests[0].body.tags, ["zzz"])
+})
+
+test("session.idle direkt nach einer Freigabe ist kein zweiter Alarm", { timeout: 5000 }, async (t) => {
+  const h = await harness(t, [
+    event("permission.asked", "ses_A", { id: "permission_1", action: "bash", resources: [] }),
+    event("session.idle", "ses_A"),
+  ])
+  await h.drained
+  assert.equal(h.requests.length, 1)
+  assert.equal(h.requests[0].body.title, "OpenCode: Freigabe nötig")
+})

@@ -26,6 +26,7 @@ const TITLES = {
     failed: "OpenCode: Agent fehlgeschlagen",
     interrupted: "OpenCode: Agent unterbrochen",
     retry: "OpenCode: Wartet auf Provider",
+    idle: "OpenCode: wartet auf dich",
   },
   it: {
     question: "OpenCode: domanda",
@@ -34,6 +35,7 @@ const TITLES = {
     failed: "OpenCode: errore",
     interrupted: "OpenCode: interrotto",
     retry: "OpenCode: in attesa del provider",
+    idle: "OpenCode: in attesa di te",
   },
 }
 
@@ -45,6 +47,7 @@ const TAGS = {
   failed: ["rotating_light"],
   interrupted: ["octagonal_sign"],
   retry: ["hourglass_flowing_sand"],
+  idle: ["zzz"],
 }
 
 export async function readConfig(options = {}, env = process.env) {
@@ -146,6 +149,11 @@ function notificationEvent(event, config) {
     case "session.execution.interrupted":
       if (!config.completions) return
       return { sessionID: data.sessionID, key: event.id, title: titles.interrupted, tags: TAGS.interrupted, completion: true, priority: config.completionPriority }
+    // Der Agent ist fertig, aber der Lauf ist nicht "succeeded": session.idle
+    // ist das Ereignis, das im Chat tatsächlich am Ende eines Turns kommt.
+    case "session.idle":
+      if (!config.completions) return
+      return { sessionID: data.sessionID, key: event.id, title: titles.idle, tags: TAGS.idle, completion: true, idle: true, priority: config.completionPriority }
     // Der Provider begrenzt gerade: kein Fehler der Sitzung, aber relevant für die Planung.
     case "session.retry.scheduled":
       return {
@@ -204,6 +212,10 @@ export function startNotifier(ctx, config) {
   const controller = new AbortController()
   const { signal } = controller
   const seen = new Set()
+  // Letzte Meldung pro Sitzung: session.idle kommt nach jedem Turn und wäre
+  // direkt nach einem Abschluss oder einer Freigabe nur Rauschen.
+  const lastSent = new Map()
+  const IDLE_QUIET_MS = 60_000
   const sent = []
   let limitWarnedAt = 0
   const warn = (message) => console.warn(`[mumme-it.ntfy] ${message}`)
@@ -227,6 +239,10 @@ export function startNotifier(ctx, config) {
     const session = await ctx.session.get({ sessionID: notice.sessionID }, { signal })
     if (!sameLocation(session.location, ctx.location)) return
     if (notice.completion && session.parentID && !config.includeChildCompletions) return
+    if (notice.idle) {
+      const last = lastSent.get(notice.sessionID) ?? 0
+      if (Date.now() - last < IDLE_QUIET_MS) return
+    }
     signal.throwIfAborted()
     if (!allow()) {
       const now = Date.now()
@@ -254,6 +270,8 @@ export function startNotifier(ctx, config) {
     }, signal)
     seen.add(notice.key)
     if (seen.size > 1024) seen.delete(seen.values().next().value)
+    lastSent.set(notice.sessionID, Date.now())
+    if (lastSent.size > 1024) lastSent.delete(lastSent.keys().next().value)
   }
 
   const running = (async () => {

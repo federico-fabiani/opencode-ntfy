@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.3.0
+
+- `session.idle` wird als Abschluss gemeldet. Im Chat endet ein Turn mit
+  `session.idle`, nicht mit `session.execution.succeeded` — ohne dieses Ereignis
+  kam am Ende eines normalen Turns gar keine Meldung.
+- Eine Meldung direkt nach Abschluss oder Freigabe derselben Sitzung wird
+  60 Sekunden lang unterdrückt, damit `session.idle` nicht doppelt alarmiert.
+
 ## 0.2.0
 
 Fork von `Mumme-IT/opencode-ntfy` durch federico-fabiani. Upstream bleibt die Referenz;
